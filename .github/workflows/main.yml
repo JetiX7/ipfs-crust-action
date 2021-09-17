@@ -1,19 +1,20 @@
-on: 
-  push:
-    branches:
-      - main
+on:
+    push:
+        branches:
+            - main
 
 jobs:
-  test_job:
-    runs-on: ubuntu-latest
-    name: Testing on Crust Pin
-    steps:
-      - uses: actions/checkout@v2.1.0
-      - name: Crust IPFS pin action
-        id: pin
-        uses: crustio/ipfs-crust-action@v2.0.3
-        with:
-          cid: QmevJf2rdNibZCGrgeyVJEM82y5DsXgMDHXM6zBtQ6G4Vj
-          seeds: ${{ secrets.CRUST_SEEDS }}
-      - name: Print res
-        run: echo "Pin ${{ steps.pin.outputs.res }}"
+    test_job:
+        runs-on: ubuntu-latest
+        name: Testing on Crust Pin
+        steps:
+            - uses: actions/checkout@v2.1.0
+            - name: Crust IPFS pin action - Get Hash
+              id: pin
+              uses: switchswapbox/ipfs-crust-action@v2.0.9
+              with:
+                  cid: QmevJf2rdNibZCGrgeyVJEM82y5DsXgMDHXM6zBtQ6G4Vj
+                  size: 200000000
+                  seeds: ${{ secrets.CRUST_SEEDS }}
+            - name: Print txHash
+              run: echo "Pin ${{ steps.pin.outputs.txHash }}"

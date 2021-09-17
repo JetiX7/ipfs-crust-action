@@ -7,15 +7,15 @@ module.exports =
 
 const core = __nccwpck_require__(42186);
 const { ApiPromise, WsProvider } = __nccwpck_require__(21049);
-const { typesBundleForPolkadot, types } = __nccwpck_require__(8190);
-const { checkCid, checkSeeds, sendTx } = __nccwpck_require__(44962);
+const { typesBundleForPolkadot } = __nccwpck_require__(8190);
+const { checkCid, checkSeeds, sendTx, loadKeyringPair } = __nccwpck_require__(44962);
 
 async function main() {
     // 1. Get all inputs
     const cid = core.getInput('cid'); // Currently, we only support CIDv0
+    const size = core.getInput('size');
     const seeds = core.getInput('seeds');
     const chainAddr = core.getInput('crust-endpoint');
-    const ipfsGateway = core.getInput('ipfs-gateway');
 
     // 2. Check cid and seeds
     if (!checkCid(cid) || !checkSeeds(seeds)) {
@@ -25,35 +25,28 @@ async function main() {
     // 3. Try to connect to Crust Chain
     const chain = new ApiPromise({
         provider: new WsProvider(chainAddr),
-        typesBundle: typesBundleForPolkadot
+        typesBundle: typesBundleForPolkadot,
     });
     await chain.isReadyOrError;
 
-    // 4. Get file size by hard code instead of requsting ipfs.gateway(leads timeout)
-    // const ipfs = axios.create({
-    //     baseURL: ipfsGateway + '/api/v0',
-    //     timeout: 60 * 1000, // 1 min
-    //     headers: {'Content-Type': 'application/json'},
-    // });
-    // const res = await ipfs.post(`/object/stat?arg=${cid}`);
-    // const objInfo = parseObj(res.data);
-    // const size = objInfo.CumulativeSize;
-    const size = 200 * 1024 * 1024; // 200 MB
-    // console.log(`Got IPFS object size: ${size}`);
-
-    // 5. Construct tx
+    // 4. Construct tx
     const tx = chain.tx.market.placeStorageOrder(cid, size, 0, '');
 
-    // 6. Send tx and disconnect chain
-    const txRes = await sendTx(tx, seeds);
+    const krp = loadKeyringPair(seeds);
+    const nonce = await chain.rpc.system.accountNextIndex(krp.address);
+
+    // 5. Send tx and disconnect chain
+    const status = await sendTx(tx, krp, nonce);
     chain.disconnect();
 
-    core.setOutput('res', txRes);
+    core.setOutput('isSent', status.isSent);
+    core.setOutput('txHash', status.txHash);
 }
 
-main().catch(error => {
+main().catch((error) => {
     core.setFailed(error.message);
 });
+
 
 /***/ }),
 
@@ -5705,7 +5698,7 @@ module.exports = { mask, unmask };
 
 
 try {
-  module.exports = require(__nccwpck_require__.ab + "prebuilds/darwin-x64/node.napi.node");
+  module.exports = require(__nccwpck_require__.ab + "prebuilds/win32-x64/node.napi1.node");
 } catch (e) {
   module.exports = __nccwpck_require__(57218);
 }
@@ -30504,7 +30497,7 @@ module.exports = isValidUTF8;
 
 
 try {
-  module.exports = require(__nccwpck_require__.ab + "prebuilds/darwin-x64/node.napi1.node");
+  module.exports = require(__nccwpck_require__.ab + "prebuilds/win32-x64/node.napi.node");
 } catch (e) {
   module.exports = __nccwpck_require__(92534);
 }
@@ -34727,7 +34720,7 @@ const { Keyring } = __nccwpck_require__(70527);
 /* PUBLIC METHODS */
 /**
  * Check CIDv0 legality
- * @param {string} cid 
+ * @param {string} cid
  * @returns boolean
  */
 function checkCid(cid) {
@@ -34736,7 +34729,7 @@ function checkCid(cid) {
 
 /**
  * Check seeds(12 words) legality
- * @param {string} seeds 
+ * @param {string} seeds
  * @returns boolean
  */
 function checkSeeds(seeds) {
@@ -34746,58 +34739,31 @@ function checkSeeds(seeds) {
 /**
  * Send tx to Crust Network
  * @param {import('@polkadot/api/types').SubmittableExtrinsic} tx
- * @param {string} seeds 12 secret words 
+ * @param {string} seeds 12 secret words
  * @returns Promise<boolean> send tx success or failed
  */
-async function sendTx(tx, seeds) {
-    // 1. Load keyring
-    console.log('⛓  Sending tx to chain...');
-    const krp = loadKeyringPair(seeds);
-    
-    // 2. Send tx to chain
-    return new Promise((resolve, reject) => {
-        tx.signAndSend(krp, ({events = [], status}) => {
-            console.log(
-                `  ↪ 💸  Transaction status: ${status.type}, nonce: ${tx.nonce}`
-            );
+async function sendTx(tx, krp, nonce) {
+    try {
+        console.log('⛓  Sending tx to chain');
 
-            if (
-                status.isInvalid ||
-                status.isDropped ||
-                status.isUsurped ||
-                status.isRetracted
-            ) {
-                reject(new Error('Invalid transaction'));
-            } else {
-                // Pass it
-            }
+        // Send tx to chain, get txHash without waiting for transaction to be included
+        const txHash = await tx.signAndSend(krp, { nonce });
+        console.log(`  ↪ 💸  Transaction is submitted, nonce: ${nonce}`);
 
-            if (status.isInBlock) {
-                events.forEach(({event: {method, section}}) => {
-                if (section === 'system' && method === 'ExtrinsicFailed') {
-                    // Error with no detail, just return error
-                    console.error('  ↪ ❌  Send transaction failed');
-                    resolve(false);
-                } else if (method === 'ExtrinsicSuccess') {
-                    console.log('  ↪ ✅  Send transaction success.');
-                    resolve(true);
-                }
-                });
-            } else {
-                // Pass it
-            }
-        }).catch(e => {
-            reject(e);
-        });
-    });
+        return { isSent: true, txHash: txHash.toString() };
+    } catch (e) {
+        console.error('  ↪ ❌  Send transaction failed');
+        console.error(e);
+        return { isSent: false, txHash: null };
+    }
 }
 
 /* PRIVATE METHODS  */
 /**
  * Load keyring pair with seeds
- * @param {string} seeds 
+ * @param {string} seeds
  */
- function loadKeyringPair(seeds) {
+function loadKeyringPair(seeds) {
     const kr = new Keyring({
         type: 'sr25519',
     });
@@ -34810,7 +34776,9 @@ module.exports = {
     checkCid,
     checkSeeds,
     sendTx,
-}
+    loadKeyringPair,
+};
+
 
 /***/ }),
 
@@ -60083,6 +60051,160 @@ exports.default = _default;
 
 /***/ }),
 
+/***/ 84890:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+var _interopRequireDefault = __nccwpck_require__(93298);
+
+Object.defineProperty(exports, "__esModule", ({
+  value: true
+}));
+exports.default = void 0;
+
+var _defineProperty2 = _interopRequireDefault(__nccwpck_require__(23561));
+
+function ownKeys(object, enumerableOnly) { var keys = Object.keys(object); if (Object.getOwnPropertySymbols) { var symbols = Object.getOwnPropertySymbols(object); if (enumerableOnly) symbols = symbols.filter(function (sym) { return Object.getOwnPropertyDescriptor(object, sym).enumerable; }); keys.push.apply(keys, symbols); } return keys; }
+
+function _objectSpread(target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i] != null ? arguments[i] : {}; if (i % 2) { ownKeys(Object(source), true).forEach(function (key) { (0, _defineProperty2.default)(target, key, source[key]); }); } else if (Object.getOwnPropertyDescriptors) { Object.defineProperties(target, Object.getOwnPropertyDescriptors(source)); } else { ownKeys(Object(source)).forEach(function (key) { Object.defineProperty(target, key, Object.getOwnPropertyDescriptor(source, key)); }); } } return target; }
+
+// Copyright 2017-2021 @polkadot/types authors & contributors
+// SPDX-License-Identifier: Apache-2.0
+// order important in structs... :)
+
+/* eslint-disable sort-keys */
+const layout = {
+  ContractCryptoHasher: {
+    _enum: ['Blake2x256', 'Sha2x256', 'Keccak256']
+  },
+  ContractDiscriminant: 'u32',
+  ContractLayoutArray: {
+    offset: 'ContractLayoutKey',
+    len: 'u32',
+    cellsPerElem: 'u64',
+    layout: 'ContractStorageLayout'
+  },
+  ContractLayoutCell: {
+    key: 'ContractLayoutKey',
+    ty: 'SiLookupTypeId'
+  },
+  ContractLayoutEnum: {
+    dispatchKey: 'ContractLayoutKey',
+    variants: 'BTreeMap<ContractDiscriminant, ContractLayoutStruct>'
+  },
+  ContractLayoutHash: {
+    offset: 'ContractLayoutKey',
+    strategy: 'ContractLayoutHashingStrategy',
+    layout: 'ContractStorageLayout'
+  },
+  ContractLayoutHashingStrategy: {
+    hasher: 'ContractCryptoHasher',
+    postfix: 'Vec<u8>',
+    prefix: 'Vec<u8>'
+  },
+  ContractLayoutKey: '[u8; 32]',
+  ContractLayoutStruct: {
+    fields: 'Vec<ContractLayoutStructField>'
+  },
+  ContractLayoutStructField: {
+    layout: 'ContractStorageLayout',
+    name: 'Text'
+  },
+  ContractStorageLayout: {
+    _enum: {
+      Cell: 'ContractLayoutCell',
+      Hash: 'ContractLayoutHash',
+      Array: 'ContractLayoutArray',
+      Struct: 'ContractLayoutStruct',
+      Enum: 'ContractLayoutEnum'
+    }
+  }
+};
+const spec = {
+  ContractConstructorSpec: {
+    name: 'Text',
+    selector: 'ContractSelector',
+    args: 'Vec<ContractMessageParamSpec>',
+    docs: 'Vec<Text>'
+  },
+  ContractContractSpec: {
+    constructors: 'Vec<ContractConstructorSpec>',
+    messages: 'Vec<ContractMessageSpec>',
+    events: 'Vec<ContractEventSpec>',
+    docs: 'Vec<Text>'
+  },
+  ContractDisplayName: 'SiPath',
+  ContractEventParamSpec: {
+    name: 'Text',
+    indexed: 'bool',
+    type: 'ContractTypeSpec',
+    docs: 'Vec<Text>'
+  },
+  ContractEventSpec: {
+    name: 'Text',
+    args: 'Vec<ContractEventParamSpec>',
+    docs: 'Vec<Text>'
+  },
+  ContractMessageParamSpec: {
+    name: 'Text',
+    type: 'ContractTypeSpec'
+  },
+  ContractMessageSpec: {
+    name: 'Text',
+    selector: 'ContractSelector',
+    mutates: 'bool',
+    payable: 'bool',
+    args: 'Vec<ContractMessageParamSpec>',
+    returnType: 'Option<ContractTypeSpec>',
+    docs: 'Vec<Text>'
+  },
+  ContractSelector: '[u8; 4]',
+  ContractTypeSpec: {
+    type: 'SiLookupTypeId',
+    displayName: 'ContractDisplayName'
+  }
+};
+var _default = {
+  rpc: {},
+  types: _objectSpread(_objectSpread(_objectSpread({}, layout), spec), {}, {
+    ContractProject: {
+      // added by ABI serialization
+      metadataVersion: 'Text',
+      source: 'ContractProjectSource',
+      contract: 'ContractProjectContract',
+      // expanded scale registry: RegistryReadOnly
+      types: 'Vec<SiType>',
+      // renamed from layout (ignored for now, incomplete)
+      // storage: 'ContractStorageLayout',
+      spec: 'ContractContractSpec'
+    },
+    ContractProjectContract: {
+      name: 'Text',
+      version: 'Text',
+      authors: 'Vec<Text>',
+      description: 'Option<Text>',
+      documentation: 'Option<Text>',
+      repository: 'Option<Text>',
+      homepage: 'Option<Text>',
+      license: 'Option<Text>'
+    },
+    ContractProjectSource: {
+      _alias: {
+        wasmHash: 'hash'
+      },
+      wasmHash: '[u8; 32]',
+      language: 'Text',
+      compiler: 'Text',
+      wasm: 'Raw'
+    }
+  })
+};
+exports.default = _default;
+
+/***/ }),
+
 /***/ 97553:
 /***/ ((__unused_webpack_module, exports) => {
 
@@ -60461,160 +60583,6 @@ var _default = {
     TombstoneContractInfo: 'Hash',
     TrieId: 'Bytes'
   }
-};
-exports.default = _default;
-
-/***/ }),
-
-/***/ 84890:
-/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-var _interopRequireDefault = __nccwpck_require__(93298);
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _defineProperty2 = _interopRequireDefault(__nccwpck_require__(23561));
-
-function ownKeys(object, enumerableOnly) { var keys = Object.keys(object); if (Object.getOwnPropertySymbols) { var symbols = Object.getOwnPropertySymbols(object); if (enumerableOnly) symbols = symbols.filter(function (sym) { return Object.getOwnPropertyDescriptor(object, sym).enumerable; }); keys.push.apply(keys, symbols); } return keys; }
-
-function _objectSpread(target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i] != null ? arguments[i] : {}; if (i % 2) { ownKeys(Object(source), true).forEach(function (key) { (0, _defineProperty2.default)(target, key, source[key]); }); } else if (Object.getOwnPropertyDescriptors) { Object.defineProperties(target, Object.getOwnPropertyDescriptors(source)); } else { ownKeys(Object(source)).forEach(function (key) { Object.defineProperty(target, key, Object.getOwnPropertyDescriptor(source, key)); }); } } return target; }
-
-// Copyright 2017-2021 @polkadot/types authors & contributors
-// SPDX-License-Identifier: Apache-2.0
-// order important in structs... :)
-
-/* eslint-disable sort-keys */
-const layout = {
-  ContractCryptoHasher: {
-    _enum: ['Blake2x256', 'Sha2x256', 'Keccak256']
-  },
-  ContractDiscriminant: 'u32',
-  ContractLayoutArray: {
-    offset: 'ContractLayoutKey',
-    len: 'u32',
-    cellsPerElem: 'u64',
-    layout: 'ContractStorageLayout'
-  },
-  ContractLayoutCell: {
-    key: 'ContractLayoutKey',
-    ty: 'SiLookupTypeId'
-  },
-  ContractLayoutEnum: {
-    dispatchKey: 'ContractLayoutKey',
-    variants: 'BTreeMap<ContractDiscriminant, ContractLayoutStruct>'
-  },
-  ContractLayoutHash: {
-    offset: 'ContractLayoutKey',
-    strategy: 'ContractLayoutHashingStrategy',
-    layout: 'ContractStorageLayout'
-  },
-  ContractLayoutHashingStrategy: {
-    hasher: 'ContractCryptoHasher',
-    postfix: 'Vec<u8>',
-    prefix: 'Vec<u8>'
-  },
-  ContractLayoutKey: '[u8; 32]',
-  ContractLayoutStruct: {
-    fields: 'Vec<ContractLayoutStructField>'
-  },
-  ContractLayoutStructField: {
-    layout: 'ContractStorageLayout',
-    name: 'Text'
-  },
-  ContractStorageLayout: {
-    _enum: {
-      Cell: 'ContractLayoutCell',
-      Hash: 'ContractLayoutHash',
-      Array: 'ContractLayoutArray',
-      Struct: 'ContractLayoutStruct',
-      Enum: 'ContractLayoutEnum'
-    }
-  }
-};
-const spec = {
-  ContractConstructorSpec: {
-    name: 'Text',
-    selector: 'ContractSelector',
-    args: 'Vec<ContractMessageParamSpec>',
-    docs: 'Vec<Text>'
-  },
-  ContractContractSpec: {
-    constructors: 'Vec<ContractConstructorSpec>',
-    messages: 'Vec<ContractMessageSpec>',
-    events: 'Vec<ContractEventSpec>',
-    docs: 'Vec<Text>'
-  },
-  ContractDisplayName: 'SiPath',
-  ContractEventParamSpec: {
-    name: 'Text',
-    indexed: 'bool',
-    type: 'ContractTypeSpec',
-    docs: 'Vec<Text>'
-  },
-  ContractEventSpec: {
-    name: 'Text',
-    args: 'Vec<ContractEventParamSpec>',
-    docs: 'Vec<Text>'
-  },
-  ContractMessageParamSpec: {
-    name: 'Text',
-    type: 'ContractTypeSpec'
-  },
-  ContractMessageSpec: {
-    name: 'Text',
-    selector: 'ContractSelector',
-    mutates: 'bool',
-    payable: 'bool',
-    args: 'Vec<ContractMessageParamSpec>',
-    returnType: 'Option<ContractTypeSpec>',
-    docs: 'Vec<Text>'
-  },
-  ContractSelector: '[u8; 4]',
-  ContractTypeSpec: {
-    type: 'SiLookupTypeId',
-    displayName: 'ContractDisplayName'
-  }
-};
-var _default = {
-  rpc: {},
-  types: _objectSpread(_objectSpread(_objectSpread({}, layout), spec), {}, {
-    ContractProject: {
-      // added by ABI serialization
-      metadataVersion: 'Text',
-      source: 'ContractProjectSource',
-      contract: 'ContractProjectContract',
-      // expanded scale registry: RegistryReadOnly
-      types: 'Vec<SiType>',
-      // renamed from layout (ignored for now, incomplete)
-      // storage: 'ContractStorageLayout',
-      spec: 'ContractContractSpec'
-    },
-    ContractProjectContract: {
-      name: 'Text',
-      version: 'Text',
-      authors: 'Vec<Text>',
-      description: 'Option<Text>',
-      documentation: 'Option<Text>',
-      repository: 'Option<Text>',
-      homepage: 'Option<Text>',
-      license: 'Option<Text>'
-    },
-    ContractProjectSource: {
-      _alias: {
-        wasmHash: 'hash'
-      },
-      wasmHash: '[u8; 32]',
-      language: 'Text',
-      compiler: 'Text',
-      wasm: 'Raw'
-    }
-  })
 };
 exports.default = _default;
 

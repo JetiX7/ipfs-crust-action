@@ -27,7 +27,7 @@ function checkSeeds(seeds) {
  */
 async function sendTx(tx, krp, nonce) {
     try {
-        console.log('⛓  Sending tx to chain - getting hash...');
+        console.log('⛓  Sending tx to chain');
 
         // Send tx to chain, get txHash without waiting for transaction to be included
         const txHash = await tx.signAndSend(krp, { nonce });
