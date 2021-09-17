@@ -13,6 +13,7 @@ Decentralized pin your site to Crust IPFS Network from Github Action
 ### `seeds`
 
 > Seeds is the private key of Crust Maxwell Account, you can:
+>
 > 1. Apply yourself by refering this [doc](https://wiki.crust.network/docs/en/crustAccount)
 > 2. Join Crust [Discord Channel](https://discord.gg/D97GGQndmx)
 
@@ -20,25 +21,29 @@ Decentralized pin your site to Crust IPFS Network from Github Action
 
 ### `crust-endpoint`
 
-*Optional*, Crust websockt endpoint. Default `'wss://rpc.crust.network'`.
+_Optional_, Crust websocket endpoint. Default `'wss://rpc.crust.network'`.
 
 ### `ipfs-gateway`
 
-*Optional*, IPFS public gateway which opens `/api` function. Default `'https://ipfs.io'`.
+_Optional_, IPFS public gateway which opens `/api` function. Default `'https://ipfs.io'`.
 
 ## Outputs
 
-### `res`
+### `isSent`
 
-**boolean**, Pin successfully or failed.
+**boolean**, Transaction submitted or not (without waiting for transaction to be included)
+
+### `txHash`
+
+**string**, Transaction Hash
 
 ## Example usage
 
 ```yaml
 uses: crustio/ipfs-crust-action@v2.0.3
 with:
-  cid: QmevJf2rdNibZCGrgeyVJEM82y5DsXgMDHXM6zBtQ6G4Vj
-  seeds: ${{ secrets.CRUST_SEEDS }}
+    cid: QmevJf2rdNibZCGrgeyVJEM82y5DsXgMDHXM6zBtQ6G4Vj
+    seeds: ${{ secrets.CRUST_SEEDS }}
 ```
 
 ## Contribution
