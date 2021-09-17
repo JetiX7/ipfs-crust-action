@@ -40,9 +40,10 @@ _Optional_, IPFS public gateway which opens `/api` function. Default `'https://i
 ## Example usage
 
 ```yaml
-uses: crustio/ipfs-crust-action@v2.0.3
+uses: switchswapbox/ipfs-crust-action@v2.0.7
 with:
     cid: QmevJf2rdNibZCGrgeyVJEM82y5DsXgMDHXM6zBtQ6G4Vj
+    size: 200000000
     seeds: ${{ secrets.CRUST_SEEDS }}
 ```
 
