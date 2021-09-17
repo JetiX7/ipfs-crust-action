@@ -3,7 +3,7 @@ const { Keyring } = require('@polkadot/keyring');
 /* PUBLIC METHODS */
 /**
  * Check CIDv0 legality
- * @param {string} cid 
+ * @param {string} cid
  * @returns boolean
  */
 function checkCid(cid) {
@@ -12,7 +12,7 @@ function checkCid(cid) {
 
 /**
  * Check seeds(12 words) legality
- * @param {string} seeds 
+ * @param {string} seeds
  * @returns boolean
  */
 function checkSeeds(seeds) {
@@ -22,58 +22,31 @@ function checkSeeds(seeds) {
 /**
  * Send tx to Crust Network
  * @param {import('@polkadot/api/types').SubmittableExtrinsic} tx
- * @param {string} seeds 12 secret words 
+ * @param {string} seeds 12 secret words
  * @returns Promise<boolean> send tx success or failed
  */
-async function sendTx(tx, seeds) {
-    // 1. Load keyring
-    console.log('⛓  Sending tx to chain...');
-    const krp = loadKeyringPair(seeds);
-    
-    // 2. Send tx to chain
-    return new Promise((resolve, reject) => {
-        tx.signAndSend(krp, ({events = [], status}) => {
-            console.log(
-                `  ↪ 💸  Transaction status: ${status.type}, nonce: ${tx.nonce}`
-            );
+async function sendTx(tx, krp, nonce) {
+    try {
+        console.log('⛓  Sending tx to chain...');
 
-            if (
-                status.isInvalid ||
-                status.isDropped ||
-                status.isUsurped ||
-                status.isRetracted
-            ) {
-                reject(new Error('Invalid transaction'));
-            } else {
-                // Pass it
-            }
+        // Send tx to chain, get txHash without waiting for transaction to be included
+        const txHash = await tx.signAndSend(krp, { nonce });
+        console.log(`  ↪ 💸  Transaction is submitted, nonce: ${nonce}`);
 
-            if (status.isInBlock) {
-                events.forEach(({event: {method, section}}) => {
-                if (section === 'system' && method === 'ExtrinsicFailed') {
-                    // Error with no detail, just return error
-                    console.error('  ↪ ❌  Send transaction failed');
-                    resolve(false);
-                } else if (method === 'ExtrinsicSuccess') {
-                    console.log('  ↪ ✅  Send transaction success.');
-                    resolve(true);
-                }
-                });
-            } else {
-                // Pass it
-            }
-        }).catch(e => {
-            reject(e);
-        });
-    });
+        return { isSent: true, txHash: txHash.toString() };
+    } catch (e) {
+        console.error('  ↪ ❌  Send transaction failed');
+        console.error(e);
+        return { isSent: false, txHash: null };
+    }
 }
 
 /* PRIVATE METHODS  */
 /**
  * Load keyring pair with seeds
- * @param {string} seeds 
+ * @param {string} seeds
  */
- function loadKeyringPair(seeds) {
+function loadKeyringPair(seeds) {
     const kr = new Keyring({
         type: 'sr25519',
     });
@@ -86,4 +59,5 @@ module.exports = {
     checkCid,
     checkSeeds,
     sendTx,
-}
+    loadKeyringPair,
+};
